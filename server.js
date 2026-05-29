@@ -207,130 +207,136 @@ function esc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
     .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }
-function fmtDate(d) { return (d||'').replace(/-/g,''); } // YYYYMMDD
 
-// Códigos de tipo de documento según catálogo SES
-const DOC_CODES = {
-  DNI: 'NIF',   // Documento Nacional de Identidad
-  NIE: 'NIE',   // Número de Identificación de Extranjero
-  PAS: 'PAS',   // Pasaporte
-  OTR: 'OTR'   // Otro documento
+function fmtDateISO(d) {
+  if (!d) return '';
+  var s = d.replace(/-/g,'');
+  return s.substring(0,4)+'-'+s.substring(4,6)+'-'+s.substring(6,8);
+}
+
+function fmtDateTime(d, hhmm) {
+  var date = fmtDateISO(d);
+  if (!date) return '';
+  var h = hhmm ? hhmm.substring(0,2)+':'+hhmm.substring(2,4)+':00' : '00:00:00';
+  return date + 'T' + h;
+}
+
+var DOC_CODES = { DNI:'NIF', NIE:'NIE', PAS:'PAS', OTR:'OTR' };
+var PAGO_CODES = {
+  'Tarjeta de crédito/débito':'TARJETA',
+  'Transferencia bancaria':'TRANSFERENCIA',
+  'Bizum':'BIZUM',
+  'Efectivo':'EFECTIVO',
 };
 
-function buildXML(data) {
-  const { reserva: r, viajeros } = data;
+function buildInnerXML(data) {
+  var r = data.reserva;
+  var viajeros = data.viajeros;
 
-  const vXML = viajeros.map((v, i) => {
-    const tipoDoc = DOC_CODES[v.tipo_documento] || 'OTR';
-    const esNacES  = v.nacionalidad_iso === 'ESP';
-    const esDNI    = v.tipo_documento === 'DNI';
-    const esNIE    = v.tipo_documento === 'NIE';
-    const needsAddr = esNacES || esDNI;
+  var personasXML = viajeros.map(function(v) {
+    var tipoDoc = DOC_CODES[v.tipo_documento] || 'OTR';
+    var esNIF   = v.tipo_documento === 'DNI';
+    var esNIE   = v.tipo_documento === 'NIE';
+    var esNacES = v.nacionalidad_iso === 'ESP' || esNIF;
 
-    // Segundo apellido obligatorio para NIF y NIE
-    const segundoAp = v.segundo_apellido
-      ? `<segundoApellido>${esc(v.segundo_apellido.toUpperCase())}</segundoApellido>`
-      : (esDNI || esNIE) ? `<segundoApellido></segundoApellido>` : '';
+    var ap2 = (esNIF || esNIE)
+      ? '<apellido2>' + esc(v.segundo_apellido || '') + '</apellido2>'
+      : (v.segundo_apellido ? '<apellido2>' + esc(v.segundo_apellido) + '</apellido2>' : '');
 
-    // Número de soporte solo para DNI y NIE
-    const soporte = (esDNI || esNIE) && v.num_soporte
-      ? `<numeroSoporte>${esc(v.num_soporte.toUpperCase())}</numeroSoporte>`
+    var soporte = (esNIF || esNIE) && v.num_soporte
+      ? '<soporteDocumento>' + esc(v.num_soporte.toUpperCase()) + '</soporteDocumento>'
       : '';
 
-    // Dirección para nacionales españoles
-    const domicilio = needsAddr && v.direccion ? `
-        <domicilio>
-          <direccion>${esc(v.direccion)}</direccion>
-          ${v.municipio     ? `<municipio>${esc(v.municipio)}</municipio>`         : ''}
-          ${v.codigo_postal ? `<codigoPostal>${esc(v.codigo_postal)}</codigoPostal>` : ''}
-          ${v.provincia     ? `<provincia>${esc(v.provincia)}</provincia>`         : ''}
-          <pais>ESP</pais>
-        </domicilio>` : '';
+    var dir = '<direccion/>';
+    if (esNacES && v.direccion) {
+      dir = '<direccion>'
+        + '<via>' + esc(v.direccion) + '</via>'
+        + (v.municipio    ? '<municipio>'   + esc(v.municipio)    + '</municipio>'   : '')
+        + (v.provincia    ? '<provincia>'   + esc(v.provincia)    + '</provincia>'   : '')
+        + (v.codigo_postal? '<codigoPostal>'+ esc(v.codigo_postal)+ '</codigoPostal>': '')
+        + '<pais>ESP</pais>'
+        + '</direccion>';
+    }
 
-    const parentesco = v.es_menor && v.relacion
-      ? `<parentesco>${esc(v.relacion)}</parentesco>` : '';
+    var parentesco = (v.es_menor && v.relacion)
+      ? '<parentesco>' + esc(v.relacion) + '</parentesco>' : '';
 
-    return `
-      <persona>
-        <rol>V</rol>
-        <tipoDocumento>${tipoDoc}</tipoDocumento>
-        ${v.num_documento ? `<numeroDocumento>${esc(v.num_documento.toUpperCase())}</numeroDocumento>` : ''}
-        ${soporte}
-        <nombre>${esc(v.nombre.toUpperCase())}</nombre>
-        <primerApellido>${esc(v.primer_apellido.toUpperCase())}</primerApellido>
-        ${segundoAp}
-        <fechaNacimiento>${fmtDate(v.fecha_nacimiento)}</fechaNacimiento>
-        <sexo>${v.sexo === 'M' ? 'H' : 'M'}</sexo>
-        <nacionalidad>${v.nacionalidad_iso || 'OTR'}</nacionalidad>
-        ${v.telefono ? `<telefono>${esc(v.telefono)}</telefono>` : ''}
-        ${v.email    ? `<correo>${esc(v.email)}</correo>`        : ''}
-        ${domicilio}
-        ${parentesco}
-      </persona>`;
+    var docBlock = v.num_documento
+      ? '<tipoDocumento>' + tipoDoc + '</tipoDocumento>'
+        + '<numeroDocumento>' + esc(v.num_documento.toUpperCase()) + '</numeroDocumento>'
+        + soporte
+      : '';
+
+    return '<persona>'
+      + '<rol>VI</rol>'
+      + '<nombre>' + esc(v.nombre.toUpperCase()) + '</nombre>'
+      + '<apellido1>' + esc(v.primer_apellido.toUpperCase()) + '</apellido1>'
+      + ap2
+      + docBlock
+      + '<fechaNacimiento>' + fmtDateISO(v.fecha_nacimiento) + '</fechaNacimiento>'
+      + (v.sexo ? '<sexo>' + (v.sexo === 'M' ? 'H' : 'M') + '</sexo>' : '')
+      + (v.nacionalidad_iso ? '<nacionalidad>' + esc(v.nacionalidad_iso) + '</nacionalidad>' : '')
+      + dir
+      + (v.telefono ? '<telefono>' + esc(v.telefono) + '</telefono>' : '')
+      + (v.email    ? '<correo>'   + esc(v.email)    + '</correo>'   : '')
+      + parentesco
+      + '</persona>';
   }).join('');
 
-  // Bloque pago
-  const pagoCodigo = {
-    'Tarjeta de crédito/débito': 'TARJETA',
-    'Transferencia bancaria': 'TRANSFERENCIA',
-    'Bizum': 'BIZUM',
-    'Efectivo': 'EFECTIVO',
-  }[r.metodo_pago] || 'OTROS';
+  var tipoPago = PAGO_CODES[r.metodo_pago] || 'OTROS';
 
-  const pagoBloque = r.metodo_pago ? `
-    <pago>
-      <tipoPago>${pagoCodigo}</tipoPago>
-    </pago>` : '';
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<peticion>'
+    + '<solicitud>'
+    + '<codigoEstablecimiento>' + SES.codigoEstablecimiento + '</codigoEstablecimiento>'
+    + '<comunicacion>'
+    + '<contrato>'
+    + '<referencia>' + esc(r.referencia) + '</referencia>'
+    + '<fechaContrato>' + fmtDateISO(r.fecha_contrato) + '</fechaContrato>'
+    + '<fechaEntrada>' + fmtDateTime(r.fecha_entrada, '1700') + '</fechaEntrada>'
+    + '<fechaSalida>' + fmtDateTime(r.fecha_salida, '1100') + '</fechaSalida>'
+    + '<numPersonas>' + viajeros.length + '</numPersonas>'
+    + '<numHabitaciones>1</numHabitaciones>'
+    + '<pago><tipoPago>' + tipoPago + '</tipoPago></pago>'
+    + '</contrato>'
+    + personasXML
+    + '</comunicacion>'
+    + '</solicitud>'
+    + '</peticion>';
+}
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<peticion xmlns="http://www.administracion.gob.es/mir/hospedajes">
-  <cabecera>
-    <codigoArrendador>${SES.codigoArrendador}</codigoArrendador>
-    <tipoComunicacion>P</tipoComunicacion>
-  </cabecera>
-  <comunicaciones>
-    <comunicacion>
-      <referencia>${esc(r.referencia)}</referencia>
-      <codigoEstablecimiento>${SES.codigoEstablecimiento}</codigoEstablecimiento>
-      <fechaContrato>${fmtDate(r.fecha_contrato)}</fechaContrato>
-      <fechaEntrada>${fmtDate(r.fecha_entrada)}</fechaEntrada>
-      <horaEntrada>1700</horaEntrada>
-      <fechaSalida>${fmtDate(r.fecha_salida)}</fechaSalida>
-      <horaSalida>1100</horaSalida>
-      <numHabitaciones>1</numHabitaciones>
-      <numPersonas>${viajeros.length}</numPersonas>
-      ${pagoBloque}
-      <personas>${vXML}
-      </personas>
-    </comunicacion>
-  </comunicaciones>
-</peticion>`;
+function buildOuterXML(base64Zip) {
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<peticion>'
+    + '<cabecera>'
+    + '<arrendador>' + SES.codigoArrendador + '</arrendador>'
+    + '<aplicacion>PanoramicSuites</aplicacion>'
+    + '<tipoOperacion>A</tipoOperacion>'
+    + '<tipoComunicacion>PV</tipoComunicacion>'
+    + '</cabecera>'
+    + '<solicitud>' + base64Zip + '</solicitud>'
+    + '</peticion>';
 }
 
 // ============================================================
 // ENVÍO A SES
 // ============================================================
-async function sendToSES(xml) {
+async function sendToSES(data) {
   const token = Buffer.from(`${SES.usuario}:${SES.password}`).toString('base64');
 
-  // SES requires XML compressed as ZIP and encoded in Base64
+  // Step 1: Build the inner XML with the communication data
+  const innerXML = buildInnerXML(data);
+  console.log('[Inner XML]\n', innerXML);
+
+  // Step 2: Compress inner XML as ZIP and encode as Base64
   const zip = new AdmZip();
-  zip.addFile('comunicacion.xml', Buffer.from(xml, 'utf8'));
+  zip.addFile('comunicacion.xml', Buffer.from(innerXML, 'utf8'));
   const zipBuffer = zip.toBuffer();
   const base64Zip = zipBuffer.toString('base64');
 
-  // Build the SOAP/REST envelope with the Base64 content
-  const body = `<?xml version="1.0" encoding="UTF-8"?>
-<peticion xmlns="http://hospedajes.ses.mir.es/hospedajes">
-  <cabecera>
-    <codigoArrendador>${SES.codigoArrendador}</codigoArrendador>
-    <tipoPeticion>ALTA</tipoPeticion>
-    <tipoComunicacion>P</tipoComunicacion>
-  </cabecera>
-  <solicitud>${base64Zip}</solicitud>
-</peticion>`;
-
-  console.log('[SES envelope length]', body.length);
+  // Step 3: Build outer XML envelope with cabecera + base64 solicitud
+  const outerXML = buildOuterXML(base64Zip);
+  console.log('[SES envelope length]', outerXML.length);
 
   const res = await fetch(SES.endpoint, {
     method: 'POST',
@@ -338,7 +344,7 @@ async function sendToSES(xml) {
       'Content-Type': 'application/xml; charset=UTF-8',
       'Authorization': `Basic ${token}`,
     },
-    body: body,
+    body: outerXML,
   });
   const responseText = await res.text();
   console.log(`[SES] ${res.status} — ${responseText.substring(0,1000)}`);
@@ -355,12 +361,8 @@ app.post('/api/parte-viajeros', async (req, res) => {
 
   console.log(`[Checkin] ${data.reserva.referencia} | ${data.viajeros.length} viajero(s)`);
 
-  let xml;
-  try { xml = buildXML(data); console.log('[XML]\n', xml); }
-  catch (e) { return res.status(500).json({ success: false, error: 'Error XML: ' + e.message }); }
-
   let ses = { ok: false, status: 0, body: '' };
-  try { ses = await sendToSES(xml); }
+  try { ses = await sendToSES(data); }
   catch (e) { console.error('[SES error]', e.message); ses.body = e.message; }
 
   // Log de cumplimiento (guarda al menos 3 años según RD 933/2021)
