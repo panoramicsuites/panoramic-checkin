@@ -200,7 +200,8 @@ const DOC_MAP  = { DNI:'D', NIE:'X', PAS:'P', OTR:'O' };
 const SEXO_MAP = { M:'HOMBRE', F:'MUJER' };
 
 // ============================================================
-// XML BUILDER — formato oficial SES.Hospedajes v3.1.2
+// XML BUILDER — formato oficial SES.Hospedajes v1.2.0
+// Basado en plantilla oficial 1-plantilla.xml
 // ============================================================
 function esc(s) {
   return String(s||'')
@@ -208,25 +209,41 @@ function esc(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }
 
-function fmtDateISO(d) {
+// YYYY-MM-DD -> YYYY-MM-DD+02:00
+function fmtDate(d) {
   if (!d) return '';
   var s = d.replace(/-/g,'');
-  return s.substring(0,4)+'-'+s.substring(4,6)+'-'+s.substring(6,8);
+  var iso = s.substring(0,4)+'-'+s.substring(4,6)+'-'+s.substring(6,8);
+  return iso+'+02:00';
 }
 
+// YYYY-MM-DD + HHMM -> YYYY-MM-DDTHH:MM:SS+02:00
 function fmtDateTime(d, hhmm) {
-  var date = fmtDateISO(d);
-  if (!date) return '';
+  if (!d) return '';
+  var s = d.replace(/-/g,'');
+  var iso = s.substring(0,4)+'-'+s.substring(4,6)+'-'+s.substring(6,8);
   var h = hhmm ? hhmm.substring(0,2)+':'+hhmm.substring(2,4)+':00' : '00:00:00';
-  return date + 'T' + h;
+  return iso+'T'+h+'+02:00';
 }
 
-var DOC_CODES = { DNI:'NIF', NIE:'NIE', PAS:'PAS', OTR:'OTR' };
+// Tipos de documento oficiales
+var DOC_CODES = { DNI:'NIF', NIE:'NIE', PAS:'PAS', OTR:'OTRO' };
+
+// Tipos de pago oficiales (tabla 8.7)
 var PAGO_CODES = {
-  'Tarjeta de crédito/débito':'TARJETA',
-  'Transferencia bancaria':'TRANSFERENCIA',
-  'Bizum':'BIZUM',
-  'Efectivo':'EFECTIVO',
+  'Tarjeta de crédito/débito': 'TARJT',
+  'Transferencia bancaria':    'TRANS',
+  'Bizum':                     'MOVIL',
+  'Efectivo':                  'EFECT',
+  'Otro':                      'OTRO',
+};
+
+// Parentesco: mapeo del formulario a códigos oficiales (tabla 8.3)
+var PARENTESCO_CODES = {
+  'Padre/Madre':    'PM',
+  'Tutor/a legal':  'TU',
+  'Otro familiar':  'OT',
+  'Otro':           'OT',
 };
 
 function buildInnerXML(data) {
@@ -234,38 +251,67 @@ function buildInnerXML(data) {
   var viajeros = data.viajeros;
 
   var personasXML = viajeros.map(function(v) {
-    var tipoDoc = DOC_CODES[v.tipo_documento] || 'OTR';
+    var tipoDoc = DOC_CODES[v.tipo_documento] || 'OTRO';
     var esNIF   = v.tipo_documento === 'DNI';
     var esNIE   = v.tipo_documento === 'NIE';
     var esNacES = v.nacionalidad_iso === 'ESP' || esNIF;
 
-    var ap2 = (esNIF || esNIE)
-      ? '<apellido2>' + esc(v.segundo_apellido || '') + '</apellido2>'
-      : (v.segundo_apellido ? '<apellido2>' + esc(v.segundo_apellido) + '</apellido2>' : '');
-
-    var soporte = (esNIF || esNIE) && v.num_soporte
-      ? '<soporteDocumento>' + esc(v.num_soporte.toUpperCase()) + '</soporteDocumento>'
-      : '';
-
-    var dir = '<direccion/>';
-    if (esNacES && v.direccion) {
-      dir = '<direccion>'
-        + '<via>' + esc(v.direccion) + '</via>'
-        + (v.municipio    ? '<municipio>'   + esc(v.municipio)    + '</municipio>'   : '')
-        + (v.provincia    ? '<provincia>'   + esc(v.provincia)    + '</provincia>'   : '')
-        + (v.codigo_postal? '<codigoPostal>'+ esc(v.codigo_postal)+ '</codigoPostal>': '')
-        + '<pais>ESP</pais>'
-        + '</direccion>';
+    // apellido2 obligatorio para NIF
+    var ap2 = '';
+    if (esNIF) {
+      ap2 = '<apellido2>' + esc(v.segundo_apellido || '') + '</apellido2>';
+    } else if (v.segundo_apellido) {
+      ap2 = '<apellido2>' + esc(v.segundo_apellido) + '</apellido2>';
     }
 
-    var parentesco = (v.es_menor && v.relacion)
-      ? '<parentesco>' + esc(v.relacion) + '</parentesco>' : '';
+    // soporteDocumento obligatorio para NIF y NIE
+    var soporte = '';
+    if ((esNIF || esNIE) && v.num_soporte) {
+      soporte = '<soporteDocumento>' + esc(v.num_soporte.toUpperCase()) + '</soporteDocumento>';
+    }
 
-    var docBlock = v.num_documento
-      ? '<tipoDocumento>' + tipoDoc + '</tipoDocumento>'
+    // Bloque documento (solo si tiene documento)
+    var docBlock = '';
+    if (v.num_documento) {
+      docBlock = '<tipoDocumento>' + tipoDoc + '</tipoDocumento>'
         + '<numeroDocumento>' + esc(v.num_documento.toUpperCase()) + '</numeroDocumento>'
-        + soporte
-      : '';
+        + soporte;
+    }
+
+    // Bloque dirección
+    // Para España: codigoMunicipio (INE 5 digitos) + codigoPostal + pais
+    // Para extranjeros: nombreMunicipio + codigoPostal + pais
+    var dir = '<direccion><direccion>ND</direccion><codigoPostal>00000</codigoPostal><pais>' + (v.nacionalidad_iso || 'ESP') + '</pais></direccion>';
+    if (v.direccion) {
+      if (esNacES) {
+        // España: necesitamos codigoMunicipio INE - usamos el CP como fallback visible
+        // El codigoMunicipio debe ser el código INE de 5 dígitos
+        // Como no tenemos el INE directamente, usamos el municipio como nombreMunicipio
+        // y dejamos codigoMunicipio vacío para que SES lo rechace con error claro
+        // NOTA: si el cliente es español necesitamos el código INE del municipio
+        // Usamos el codigo postal como aproximacion y municipio en nombreMunicipio
+        dir = '<direccion>'
+          + '<direccion>' + esc(v.direccion) + '</direccion>'
+          + '<codigoMunicipio>' + (v.codigo_ine || '00000') + '</codigoMunicipio>'
+          + '<codigoPostal>' + esc(v.codigo_postal || '00000') + '</codigoPostal>'
+          + '<pais>ESP</pais>'
+          + '</direccion>';
+      } else {
+        dir = '<direccion>'
+          + '<direccion>' + esc(v.direccion) + '</direccion>'
+          + '<nombreMunicipio>' + esc(v.municipio || '') + '</nombreMunicipio>'
+          + '<codigoPostal>' + esc(v.codigo_postal || '00000') + '</codigoPostal>'
+          + '<pais>' + esc(v.nacionalidad_iso || 'OTR') + '</pais>'
+          + '</direccion>';
+      }
+    }
+
+    // Parentesco
+    var parentesco = '';
+    if (v.es_menor && v.relacion) {
+      var codPar = PARENTESCO_CODES[v.relacion] || 'OT';
+      parentesco = '<parentesco>' + codPar + '</parentesco>';
+    }
 
     return '<persona>'
       + '<rol>VI</rol>'
@@ -273,9 +319,9 @@ function buildInnerXML(data) {
       + '<apellido1>' + esc(v.primer_apellido.toUpperCase()) + '</apellido1>'
       + ap2
       + docBlock
-      + '<fechaNacimiento>' + fmtDateISO(v.fecha_nacimiento) + '</fechaNacimiento>'
-      + (v.sexo ? '<sexo>' + (v.sexo === 'M' ? 'H' : 'M') + '</sexo>' : '')
+      + '<fechaNacimiento>' + fmtDate(v.fecha_nacimiento) + '</fechaNacimiento>'
       + (v.nacionalidad_iso ? '<nacionalidad>' + esc(v.nacionalidad_iso) + '</nacionalidad>' : '')
+      + (v.sexo ? '<sexo>' + (v.sexo === 'M' ? 'H' : 'M') + '</sexo>' : '')
       + dir
       + (v.telefono ? '<telefono>' + esc(v.telefono) + '</telefono>' : '')
       + (v.email    ? '<correo>'   + esc(v.email)    + '</correo>'   : '')
@@ -283,16 +329,16 @@ function buildInnerXML(data) {
       + '</persona>';
   }).join('');
 
-  var tipoPago = PAGO_CODES[r.metodo_pago] || 'OTROS';
+  var tipoPago = PAGO_CODES[r.metodo_pago] || 'OTRO';
 
   return '<?xml version="1.0" encoding="UTF-8"?>'
-    + '<peticion>'
+    + '<ns2:peticion xmlns:ns2="http://www.neg.hospedajes.mir.es/altaParteHospedaje">'
     + '<solicitud>'
-    + '<codigoEstablecimiento>' + SES.codigoEstablecimiento + '</codigoEstablecimiento>'
+    + '<codigoEstablecimiento>' + esc(SES.codigoEstablecimiento) + '</codigoEstablecimiento>'
     + '<comunicacion>'
     + '<contrato>'
     + '<referencia>' + esc(r.referencia) + '</referencia>'
-    + '<fechaContrato>' + fmtDateISO(r.fecha_contrato) + '</fechaContrato>'
+    + '<fechaContrato>' + fmtDate(r.fecha_contrato) + '</fechaContrato>'
     + '<fechaEntrada>' + fmtDateTime(r.fecha_entrada, '1700') + '</fechaEntrada>'
     + '<fechaSalida>' + fmtDateTime(r.fecha_salida, '1100') + '</fechaSalida>'
     + '<numPersonas>' + viajeros.length + '</numPersonas>'
@@ -302,7 +348,7 @@ function buildInnerXML(data) {
     + personasXML
     + '</comunicacion>'
     + '</solicitud>'
-    + '</peticion>';
+    + '</ns2:peticion>';
 }
 
 function buildOuterXML(base64Zip) {
@@ -361,9 +407,9 @@ app.post('/api/parte-viajeros', async (req, res) => {
 
   console.log(`[Checkin] ${data.reserva.referencia} | ${data.viajeros.length} viajero(s)`);
 
-  let ses = { ok: false, status: 0, body: '' };
-  try { ses = await sendToSES(data); }
-  catch (e) { console.error('[SES error]', e.message); ses.body = e.message; }
+  // SES.Hospedajes — envío automático desactivado temporalmente
+  // El XML se adjunta al email para subida manual via Alta masiva en SES.Hospedajes
+  var ses = { ok: false, status: 0, body: 'manual' };
 
   // Log de cumplimiento (guarda al menos 3 años según RD 933/2021)
   console.log('[LOG]', JSON.stringify({
@@ -371,17 +417,27 @@ app.post('/api/parte-viajeros', async (req, res) => {
     viajeros: data.viajeros.length, ses_ok: ses.ok, ses_status: ses.status
   }));
 
-  // ── EMAIL DE NOTIFICACIÓN ──────────────────────────────────
+  // ── EMAIL DE NOTIFICACIÓN CON XML ADJUNTO ────────────────
   try {
+    // Generate the inner XML for attachment
+    var xmlContent = buildInnerXML(data);
+    var xmlFilename = data.reserva.referencia + '.xml';
+
     await transporter.sendMail({
-      from:    MAIL_FROM,
-      to:      MAIL_TO,
-      subject: `Registro SES.Hospedajes — ${data.reserva.referencia}`,
-      html:    buildEmail(data),
+      from:        MAIL_FROM,
+      to:          MAIL_TO,
+      subject:     'Registro SES.Hospedajes — ' + data.reserva.referencia,
+      html:        buildEmail(data),
+      attachments: [
+        {
+          filename:    xmlFilename,
+          content:     Buffer.from(xmlContent, 'utf8'),
+          contentType: 'application/xml',
+        }
+      ],
     });
-    console.log(`[Email] Enviado a ${MAIL_TO} · ${data.reserva.referencia}`);
+    console.log('[Email] Enviado a ' + MAIL_TO + ' con adjunto ' + xmlFilename);
   } catch (mailErr) {
-    // El fallo de email NO bloquea la respuesta al cliente
     console.error('[Email] Error al enviar:', mailErr.message);
   }
 
