@@ -10,9 +10,11 @@
  * REQUISITOS: Node.js 18+
  */
 
-const express  = require('express');
-const cors     = require('cors');
+const express    = require('express');
+const cors       = require('cors');
 const nodemailer = require('nodemailer');
+const zlib       = require('zlib');
+const AdmZip     = require('adm-zip');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -310,18 +312,37 @@ function buildXML(data) {
 // ============================================================
 async function sendToSES(xml) {
   const token = Buffer.from(`${SES.usuario}:${SES.password}`).toString('base64');
+
+  // SES requires XML compressed as ZIP and encoded in Base64
+  const zip = new AdmZip();
+  zip.addFile('comunicacion.xml', Buffer.from(xml, 'utf8'));
+  const zipBuffer = zip.toBuffer();
+  const base64Zip = zipBuffer.toString('base64');
+
+  // Build the SOAP/REST envelope with the Base64 content
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<peticion xmlns="http://hospedajes.ses.mir.es/hospedajes">
+  <cabecera>
+    <codigoArrendador>${SES.codigoArrendador}</codigoArrendador>
+    <tipoPeticion>ALTA</tipoPeticion>
+    <tipoComunicacion>P</tipoComunicacion>
+  </cabecera>
+  <solicitud>${base64Zip}</solicitud>
+</peticion>`;
+
+  console.log('[SES envelope length]', body.length);
+
   const res = await fetch(SES.endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/xml; charset=UTF-8',
       'Authorization': `Basic ${token}`,
-      'codigoArrendador': SES.codigoArrendador,
     },
-    body: xml,
+    body: body,
   });
-  const body = await res.text();
-  console.log(`[SES] ${res.status} — ${body.substring(0,1000)}`);
-  return { ok: res.ok, status: res.status, body };
+  const responseText = await res.text();
+  console.log(`[SES] ${res.status} — ${responseText.substring(0,1000)}`);
+  return { ok: res.ok, status: res.status, body: responseText };
 }
 
 // ============================================================

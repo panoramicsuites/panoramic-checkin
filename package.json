@@ -1,7 +1,7 @@
 {
   "name": "panoramicsuites-checkin",
   "version": "1.0.0",
-  "description": "Backend check-in con SES.Hospedajes y notificación por email",
+  "description": "Backend check-in con SES.Hospedajes y notificaci\u00f3n por email",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,10 +10,13 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.18.2",
-    "nodemailer": "^6.9.9"
+    "nodemailer": "^6.9.9",
+    "adm-zip": "^0.5.10"
   },
   "devDependencies": {
     "nodemon": "^3.0.0"
   },
-  "engines": { "node": ">=18.0.0" }
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
