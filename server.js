@@ -421,6 +421,7 @@ app.post('/api/parte-viajeros', async (req, res) => {
   try {
     // Generate the inner XML for attachment
     var xmlContent = buildInnerXML(data);
+    console.log('[XML generado]', xmlContent.substring(0, 500));
     var xmlFilename = data.reserva.referencia + '.xml';
 
     await transporter.sendMail({
