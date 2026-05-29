@@ -281,26 +281,27 @@ function buildXML(data) {
     </pago>` : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<peticion>
-  <solicitud>
+<peticion xmlns="http://www.administracion.gob.es/mir/hospedajes">
+  <cabecera>
     <codigoArrendador>${SES.codigoArrendador}</codigoArrendador>
-    <comunicaciones>
-      <comunicacion>
-        <referencia>${esc(r.referencia)}</referencia>
-        <codigoEstablecimiento>${SES.codigoEstablecimiento}</codigoEstablecimiento>
-        <fechaContrato>${fmtDate(r.fecha_contrato)}</fechaContrato>
-        <fechaEntrada>${fmtDate(r.fecha_entrada)}</fechaEntrada>
-        <horaEntrada>1700</horaEntrada>
-        <fechaSalida>${fmtDate(r.fecha_salida)}</fechaSalida>
-        <horaSalida>1100</horaSalida>
-        <numHabitaciones>1</numHabitaciones>
-        <numPersonas>${viajeros.length}</numPersonas>
-        ${pagoBloque}
-        <personas>${vXML}
-        </personas>
-      </comunicacion>
-    </comunicaciones>
-  </solicitud>
+    <tipoComunicacion>P</tipoComunicacion>
+  </cabecera>
+  <comunicaciones>
+    <comunicacion>
+      <referencia>${esc(r.referencia)}</referencia>
+      <codigoEstablecimiento>${SES.codigoEstablecimiento}</codigoEstablecimiento>
+      <fechaContrato>${fmtDate(r.fecha_contrato)}</fechaContrato>
+      <fechaEntrada>${fmtDate(r.fecha_entrada)}</fechaEntrada>
+      <horaEntrada>1700</horaEntrada>
+      <fechaSalida>${fmtDate(r.fecha_salida)}</fechaSalida>
+      <horaSalida>1100</horaSalida>
+      <numHabitaciones>1</numHabitaciones>
+      <numPersonas>${viajeros.length}</numPersonas>
+      ${pagoBloque}
+      <personas>${vXML}
+      </personas>
+    </comunicacion>
+  </comunicaciones>
 </peticion>`;
 }
 
@@ -311,11 +312,15 @@ async function sendToSES(xml) {
   const token = Buffer.from(`${SES.usuario}:${SES.password}`).toString('base64');
   const res = await fetch(SES.endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/xml; charset=UTF-8', 'Authorization': `Basic ${token}` },
+    headers: {
+      'Content-Type': 'application/xml; charset=UTF-8',
+      'Authorization': `Basic ${token}`,
+      'codigoArrendador': SES.codigoArrendador,
+    },
     body: xml,
   });
   const body = await res.text();
-  console.log(`[SES] ${res.status} — ${body.substring(0,300)}`);
+  console.log(`[SES] ${res.status} — ${body.substring(0,1000)}`);
   return { ok: res.ok, status: res.status, body };
 }
 
