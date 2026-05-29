@@ -37,15 +37,20 @@ const SES = {
 // Opciones para el transporte SMTP. Rellena con los datos de tu
 // servidor de correo o proveedor (ver sección SMTP más abajo).
 const MAIL_CONFIG = {
-  host:   process.env.SMTP_HOST   || 'mail.panoramicsuites.com',
-  port:   Number(process.env.SMTP_PORT) || 587,
-  secure: process.env.SMTP_SECURE === 'true' ? true : (Number(process.env.SMTP_PORT) === 465),
+  host:             process.env.SMTP_HOST   || 'mail.panoramicsuites.com',
+  port:             Number(process.env.SMTP_PORT) || 465,
+  secure:           process.env.SMTP_SECURE === 'true' ? true : (Number(process.env.SMTP_PORT || 465) === 465),
   auth: {
-    user: process.env.SMTP_USER || 'info@panoramicsuites.com',
-    pass: process.env.SMTP_PASS || 'TU_CONTRASEÑA_SMTP',
+    user:           process.env.SMTP_USER || 'info@panoramicsuites.com',
+    pass:           process.env.SMTP_PASS || 'TU_CONTRASEÑA_SMTP',
   },
-  tls: { rejectUnauthorized: false },
+  tls:              { rejectUnauthorized: false },
+  connectionTimeout: 10000,
+  greetingTimeout:   10000,
+  socketTimeout:     15000,
 };
+
+console.log('[SMTP Config] host:', MAIL_CONFIG.host, 'port:', MAIL_CONFIG.port, 'secure:', MAIL_CONFIG.secure, 'user:', MAIL_CONFIG.auth.user);
 
 const MAIL_FROM = '"Panoramic Suites Web" <info@panoramicsuites.com>';
 const MAIL_TO   = 'info@panoramicsuites.com';
@@ -421,10 +426,10 @@ app.post('/api/parte-viajeros', async (req, res) => {
   try {
     // Generate the inner XML for attachment
     var xmlContent = buildInnerXML(data);
-    console.log('[XML generado]', xmlContent.substring(0, 500));
     var xmlFilename = data.reserva.referencia + '.xml';
 
-    await transporter.sendMail({
+    console.log('[Email] Intentando enviar a', MAIL_TO, '...');
+    var info = await transporter.sendMail({
       from:        MAIL_FROM,
       to:          MAIL_TO,
       subject:     'Registro SES.Hospedajes — ' + data.reserva.referencia,
@@ -437,7 +442,7 @@ app.post('/api/parte-viajeros', async (req, res) => {
         }
       ],
     });
-    console.log('[Email] Enviado a ' + MAIL_TO + ' con adjunto ' + xmlFilename);
+    console.log('[Email] Enviado OK. MessageId:', info.messageId);
   } catch (mailErr) {
     console.error('[Email] Error al enviar:', mailErr.message);
   }
