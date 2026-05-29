@@ -22,10 +22,10 @@ app.use(cors({ origin: ['https://panoramicsuites.com', 'http://localhost:3000'] 
 // CREDENCIALES SES.HOSPEDAJES  ⚠️ Cambia la contraseña tras el despliegue
 // ============================================================
 const SES = {
-  usuario:              'B70697537WS',
-  password:             'lQDkG??3',         // ← CAMBIA ESTO
-  codigoArrendador:     '0000229666',
-  codigoEstablecimiento:'0000368319',
+  usuario:               process.env.SES_USER     || 'B70697537WS',
+  password:              process.env.SES_PASSWORD  || 'lQDkG??3',
+  codigoArrendador:      process.env.SES_ARRENDADOR     || '0000229666',
+  codigoEstablecimiento: process.env.SES_ESTABLECIMIENTO || '0000368319',
   endpoint:             'https://hospedajes.ses.mir.es/hospedajes-web/ws/v1/comunicacion',
 };
 
@@ -35,19 +35,14 @@ const SES = {
 // Opciones para el transporte SMTP. Rellena con los datos de tu
 // servidor de correo o proveedor (ver sección SMTP más abajo).
 const MAIL_CONFIG = {
-  // --- Opción A: SMTP genérico (hosting, Ionos, OVH, etc.) ---
-  host:   process.env.SMTP_HOST     || 'mail.panoramicsuites.com', // servidor SMTP
-  port:   Number(process.env.SMTP_PORT)   || 465,                  // 465 SSL · 587 TLS
-  secure: process.env.SMTP_SECURE   !== 'false',                   // true para 465
+  host:   process.env.SMTP_HOST   || 'mail.panoramicsuites.com',
+  port:   Number(process.env.SMTP_PORT) || 587,
+  secure: process.env.SMTP_SECURE === 'true' ? true : (Number(process.env.SMTP_PORT) === 465),
   auth: {
-    user: process.env.SMTP_USER     || 'info@panoramicsuites.com', // usuario SMTP
-    pass: process.env.SMTP_PASS     || 'TU_CONTRASEÑA_SMTP',       // ← CAMBIA ESTO
+    user: process.env.SMTP_USER || 'info@panoramicsuites.com',
+    pass: process.env.SMTP_PASS || 'TU_CONTRASEÑA_SMTP',
   },
-  // --- Opción B: Gmail (descomenta y borra el bloque A) ---
-  // service: 'gmail',
-  // auth: { user: 'info@panoramicsuites.com', pass: 'contraseña_de_aplicacion' },
-  //
-  // --- Opción C: Resend / SendGrid (API key) — ver README ---
+  tls: { rejectUnauthorized: false },
 };
 
 const MAIL_FROM = '"Panoramic Suites Web" <info@panoramicsuites.com>';
