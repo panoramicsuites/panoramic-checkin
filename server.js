@@ -198,7 +198,7 @@ const DOC_MAP  = { DNI:'D', NIE:'X', PAS:'P', OTR:'O' };
 const SEXO_MAP = { M:'HOMBRE', F:'MUJER' };
 
 // ============================================================
-// XML BUILDER
+// XML BUILDER — formato oficial SES.Hospedajes v3.1.2
 // ============================================================
 function esc(s) {
   return String(s||'')
@@ -207,59 +207,100 @@ function esc(s) {
 }
 function fmtDate(d) { return (d||'').replace(/-/g,''); } // YYYYMMDD
 
+// Códigos de tipo de documento según catálogo SES
+const DOC_CODES = {
+  DNI: 'NIF',   // Documento Nacional de Identidad
+  NIE: 'NIE',   // Número de Identificación de Extranjero
+  PAS: 'PAS',   // Pasaporte
+  OTR: 'OTR'   // Otro documento
+};
+
 function buildXML(data) {
   const { reserva: r, viajeros } = data;
 
   const vXML = viajeros.map((v, i) => {
-    const tipoDoc = DOC_MAP[v.tipo_documento] || 'O';
-    const esDNI   = v.tipo_documento === 'DNI';
-    const esNIE   = v.tipo_documento === 'NIE';
-    const esSopDoc= esDNI || esNIE;
-    const esNac   = v.nacionalidad_iso === 'ESP' || esDNI;
+    const tipoDoc = DOC_CODES[v.tipo_documento] || 'OTR';
+    const esNacES  = v.nacionalidad_iso === 'ESP';
+    const esDNI    = v.tipo_documento === 'DNI';
+    const esNIE    = v.tipo_documento === 'NIE';
+    const needsAddr = esNacES || esDNI;
+
+    // Segundo apellido obligatorio para NIF y NIE
+    const segundoAp = v.segundo_apellido
+      ? `<segundoApellido>${esc(v.segundo_apellido.toUpperCase())}</segundoApellido>`
+      : (esDNI || esNIE) ? `<segundoApellido></segundoApellido>` : '';
+
+    // Número de soporte solo para DNI y NIE
+    const soporte = (esDNI || esNIE) && v.num_soporte
+      ? `<numeroSoporte>${esc(v.num_soporte.toUpperCase())}</numeroSoporte>`
+      : '';
+
+    // Dirección para nacionales españoles
+    const domicilio = needsAddr && v.direccion ? `
+        <domicilio>
+          <direccion>${esc(v.direccion)}</direccion>
+          ${v.municipio     ? `<municipio>${esc(v.municipio)}</municipio>`         : ''}
+          ${v.codigo_postal ? `<codigoPostal>${esc(v.codigo_postal)}</codigoPostal>` : ''}
+          ${v.provincia     ? `<provincia>${esc(v.provincia)}</provincia>`         : ''}
+          <pais>ESP</pais>
+        </domicilio>` : '';
+
+    const parentesco = v.es_menor && v.relacion
+      ? `<parentesco>${esc(v.relacion)}</parentesco>` : '';
 
     return `
-    <viajero>
-      <numero>${i + 1}</numero>
-      <tipo_documento>${tipoDoc}</tipo_documento>
-      ${v.num_documento ? `<numero_documento>${esc(v.num_documento)}</numero_documento>` : ''}
-      ${esSopDoc && v.num_soporte ? `<numero_soporte>${esc(v.num_soporte)}</numero_soporte>` : ''}
-      <nombre>${esc(v.nombre.toUpperCase())}</nombre>
-      <primer_apellido>${esc(v.primer_apellido.toUpperCase())}</primer_apellido>
-      ${v.segundo_apellido ? `<segundo_apellido>${esc(v.segundo_apellido.toUpperCase())}</segundo_apellido>` : ''}
-      <fecha_nacimiento>${fmtDate(v.fecha_nacimiento)}</fecha_nacimiento>
-      <sexo>${SEXO_MAP[v.sexo] || v.sexo}</sexo>
-      <nacionalidad>${v.nacionalidad_iso || 'OTR'}</nacionalidad>
-      <telefono>${esc(v.telefono)}</telefono>
-      ${v.email ? `<email>${esc(v.email)}</email>` : ''}
-      ${esNac && v.direccion ? `
-      <domicilio>
-        <direccion>${esc(v.direccion)}</direccion>
-        ${v.municipio    ? `<municipio>${esc(v.municipio)}</municipio>` : ''}
-        ${v.codigo_postal ? `<codigo_postal>${esc(v.codigo_postal)}</codigo_postal>` : ''}
-        ${v.provincia    ? `<provincia>${esc(v.provincia)}</provincia>` : ''}
-        <pais>${v.pais_residencia ? 'ESP' : 'ESP'}</pais>
-      </domicilio>` : ''}
-      ${v.es_menor && v.relacion ? `<parentesco>${esc(v.relacion)}</parentesco>` : ''}
-    </viajero>`;
+      <persona>
+        <rol>V</rol>
+        <tipoDocumento>${tipoDoc}</tipoDocumento>
+        ${v.num_documento ? `<numeroDocumento>${esc(v.num_documento.toUpperCase())}</numeroDocumento>` : ''}
+        ${soporte}
+        <nombre>${esc(v.nombre.toUpperCase())}</nombre>
+        <primerApellido>${esc(v.primer_apellido.toUpperCase())}</primerApellido>
+        ${segundoAp}
+        <fechaNacimiento>${fmtDate(v.fecha_nacimiento)}</fechaNacimiento>
+        <sexo>${v.sexo === 'M' ? 'H' : 'M'}</sexo>
+        <nacionalidad>${v.nacionalidad_iso || 'OTR'}</nacionalidad>
+        ${v.telefono ? `<telefono>${esc(v.telefono)}</telefono>` : ''}
+        ${v.email    ? `<correo>${esc(v.email)}</correo>`        : ''}
+        ${domicilio}
+        ${parentesco}
+      </persona>`;
   }).join('');
 
+  // Bloque pago
+  const pagoCodigo = {
+    'Tarjeta de crédito/débito': 'TARJETA',
+    'Transferencia bancaria': 'TRANSFERENCIA',
+    'Bizum': 'BIZUM',
+    'Efectivo': 'EFECTIVO',
+  }[r.metodo_pago] || 'OTROS';
+
+  const pagoBloque = r.metodo_pago ? `
+    <pago>
+      <tipoPago>${pagoCodigo}</tipoPago>
+    </pago>` : '';
+
   return `<?xml version="1.0" encoding="UTF-8"?>
-<peticion xmlns="http://hospedajes.ses.mir.es/hospedajes">
-  <cabecera>
-    <codigo_arrendador>${SES.codigoArrendador}</codigo_arrendador>
-    <codigo_establecimiento>${SES.codigoEstablecimiento}</codigo_establecimiento>
-    <numero_referencia>${esc(r.referencia)}</numero_referencia>
-    <fecha_contrato>${fmtDate(r.fecha_contrato)}</fecha_contrato>
-    <fecha_entrada>${fmtDate(r.fecha_entrada)}</fecha_entrada>
-    <hora_entrada>170000</hora_entrada>
-    <fecha_salida>${fmtDate(r.fecha_salida)}</fecha_salida>
-    <hora_salida>110000</hora_salida>
-    <numero_habitaciones>1</numero_habitaciones>
-    <numero_viajeros>${viajeros.length}</numero_viajeros>
-    ${r.metodo_pago ? `<forma_pago>${esc(r.metodo_pago)}</forma_pago>` : ''}
-  </cabecera>
-  <viajeros>${vXML}
-  </viajeros>
+<peticion>
+  <solicitud>
+    <codigoArrendador>${SES.codigoArrendador}</codigoArrendador>
+    <comunicaciones>
+      <comunicacion>
+        <referencia>${esc(r.referencia)}</referencia>
+        <codigoEstablecimiento>${SES.codigoEstablecimiento}</codigoEstablecimiento>
+        <fechaContrato>${fmtDate(r.fecha_contrato)}</fechaContrato>
+        <fechaEntrada>${fmtDate(r.fecha_entrada)}</fechaEntrada>
+        <horaEntrada>1700</horaEntrada>
+        <fechaSalida>${fmtDate(r.fecha_salida)}</fechaSalida>
+        <horaSalida>1100</horaSalida>
+        <numHabitaciones>1</numHabitaciones>
+        <numPersonas>${viajeros.length}</numPersonas>
+        ${pagoBloque}
+        <personas>${vXML}
+        </personas>
+      </comunicacion>
+    </comunicaciones>
+  </solicitud>
 </peticion>`;
 }
 
