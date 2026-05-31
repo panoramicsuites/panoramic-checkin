@@ -4,7 +4,7 @@
  * y manda un email de confirmación a info@panoramicsuites.com
  *
  * INSTALACIÓN:
- *   npm install express cors nodemailer
+ *   npm install express cors resend adm-zip
  *   node server.js
  *
  * REQUISITOS: Node.js 18+
@@ -12,34 +12,13 @@
 
 const express    = require('express');
 const cors       = require('cors');
-const nodemailer = require('nodemailer');
-const zlib       = require('zlib');
+const { Resend } = require('resend');
 const AdmZip     = require('adm-zip');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(cors({ origin: ['https://panoramicsuites.com', 'http://localhost:3000'] }));
-app.get('/test', async (_, res) => {
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'Panoramic Suites <info@panoramicsuites.com>',
-        to: 'info@panoramicsuites.com',
-        subject: 'Test conexion',
-        html: '<p>Test</p>'
-      })
-    });
-    const data = await r.json();
-    res.json({ status: r.status, data });
-  } catch(e) {
-    res.json({ error: e.message });
-  }
-});
+
 // ============================================================
 // CREDENCIALES SES.HOSPEDAJES  ⚠️ Cambia la contraseña tras el despliegue
 // ============================================================
@@ -56,26 +35,10 @@ const SES = {
 // ============================================================
 // Opciones para el transporte SMTP. Rellena con los datos de tu
 // servidor de correo o proveedor (ver sección SMTP más abajo).
-const MAIL_CONFIG = {
-  host:             process.env.SMTP_HOST   || 'mail.panoramicsuites.com',
-  port:             Number(process.env.SMTP_PORT) || 465,
-  secure:           process.env.SMTP_SECURE === 'true' ? true : (Number(process.env.SMTP_PORT || 465) === 465),
-  auth: {
-    user:           process.env.SMTP_USER || 'info@panoramicsuites.com',
-    pass:           process.env.SMTP_PASS || 'TU_CONTRASEÑA_SMTP',
-  },
-  tls:              { rejectUnauthorized: false },
-  connectionTimeout: 10000,
-  greetingTimeout:   10000,
-  socketTimeout:     15000,
-};
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-console.log('[SMTP Config] host:', MAIL_CONFIG.host, 'port:', MAIL_CONFIG.port, 'secure:', MAIL_CONFIG.secure, 'user:', MAIL_CONFIG.auth.user);
-
-const MAIL_FROM = '"Panoramic Suites Web" <info@panoramicsuites.com>';
+const MAIL_FROM = 'Panoramic Suites <info@panoramicsuites.com>';
 const MAIL_TO   = 'info@panoramicsuites.com';
-
-const transporter = nodemailer.createTransport(MAIL_CONFIG);
 
 // ============================================================
 // BUILDER DEL EMAIL HTML
@@ -448,8 +411,8 @@ app.post('/api/parte-viajeros', async (req, res) => {
     var xmlContent = buildInnerXML(data);
     var xmlFilename = data.reserva.referencia + '.xml';
 
-    console.log('[Email] Intentando enviar a', MAIL_TO, '...');
-    var info = await transporter.sendMail({
+    console.log('[Email] Intentando enviar via Resend a', MAIL_TO, '...');
+    var info = await resend.emails.send({
       from:        MAIL_FROM,
       to:          MAIL_TO,
       subject:     'Registro SES.Hospedajes — ' + data.reserva.referencia,
@@ -457,12 +420,11 @@ app.post('/api/parte-viajeros', async (req, res) => {
       attachments: [
         {
           filename:    xmlFilename,
-          content:     Buffer.from(xmlContent, 'utf8'),
-          contentType: 'application/xml',
+          content:     Buffer.from(xmlContent).toString('base64'),
         }
       ],
     });
-    console.log('[Email] Enviado OK. MessageId:', info.messageId);
+    console.log('[Email] Enviado OK via Resend. Id:', info.data ? info.data.id : JSON.stringify(info));
   } catch (mailErr) {
     console.error('[Email] Error al enviar:', mailErr.message);
   }
@@ -472,6 +434,31 @@ app.post('/api/parte-viajeros', async (req, res) => {
 });
 
 app.get('/health', (_, res) => res.json({ ok: true }));
+
+app.get('/test-email', async (_, res) => {
+  try {
+    console.log('[Test] RESEND_API_KEY present:', !!process.env.RESEND_API_KEY);
+    var r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Panoramic Suites <info@panoramicsuites.com>',
+        to:   'info@panoramicsuites.com',
+        subject: 'Test conexion Resend',
+        html: '<p>Si recibes esto, el email funciona correctamente.</p>'
+      })
+    });
+    var data = await r.json();
+    console.log('[Test] Resend response:', r.status, JSON.stringify(data));
+    res.json({ status: r.status, data: data });
+  } catch(e) {
+    console.log('[Test] Error:', e.message);
+    res.json({ error: e.message });
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
