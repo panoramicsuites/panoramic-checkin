@@ -19,7 +19,27 @@ const AdmZip     = require('adm-zip');
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(cors({ origin: ['https://panoramicsuites.com', 'http://localhost:3000'] }));
-
+app.get('/test', async (_, res) => {
+  try {
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        from: 'Panoramic Suites <info@panoramicsuites.com>',
+        to: 'info@panoramicsuites.com',
+        subject: 'Test conexion',
+        html: '<p>Test</p>'
+      })
+    });
+    const data = await r.json();
+    res.json({ status: r.status, data });
+  } catch(e) {
+    res.json({ error: e.message });
+  }
+});
 // ============================================================
 // CREDENCIALES SES.HOSPEDAJES  ⚠️ Cambia la contraseña tras el despliegue
 // ============================================================
