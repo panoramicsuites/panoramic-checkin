@@ -394,6 +394,7 @@ app.post('/api/parte-viajeros', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Datos incompletos' });
 
   console.log(`[Checkin] ${data.reserva.referencia} | ${data.viajeros.length} viajero(s)`);
+  console.log('[Datos viajero 1]', JSON.stringify(data.viajeros[0]));
 
   // SES.Hospedajes — envío automático desactivado temporalmente
   // El XML se adjunta al email para subida manual via Alta masiva en SES.Hospedajes
