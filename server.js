@@ -215,10 +215,18 @@ function fmtDateTime(d, hhmm) {
 }
 
 // Tipos de documento oficiales
-var DOC_CODES = { DNI:'NIF', NIE:'NIE', PAS:'PAS', OTR:'OTRO' };
+var DOC_CODES = {
+  // Nuevo formulario (códigos directos)
+  'NIF':'NIF', 'NIE':'NIE', 'PAS':'PAS', 'OTRO':'OTRO',
+  // Formulario anterior
+  'DNI':'NIF', 'OTR':'OTRO',
+};
 
 // Tipos de pago oficiales (tabla 8.7)
 var PAGO_CODES = {
+  // Códigos directos (nuevo formulario)
+  'TARJT': 'TARJT', 'TRANS': 'TRANS', 'MOVIL': 'MOVIL', 'EFECT': 'EFECT', 'OTRO': 'OTRO',
+  // Labels (compatibilidad formulario anterior)
   'Tarjeta de crédito/débito': 'TARJT',
   'Transferencia bancaria':    'TRANS',
   'Bizum':                     'MOVIL',
@@ -309,7 +317,7 @@ function buildInnerXML(data) {
       + docBlock
       + '<fechaNacimiento>' + fmtDate(v.fecha_nacimiento) + '</fechaNacimiento>'
       + (v.nacionalidad_iso ? '<nacionalidad>' + esc(v.nacionalidad_iso) + '</nacionalidad>' : '')
-      + (v.sexo ? '<sexo>' + (v.sexo === 'M' ? 'H' : 'M') + '</sexo>' : '')
+      + (v.sexo ? '<sexo>' + (v.sexo === 'M' ? 'H' : (v.sexo === 'F' ? 'M' : 'O')) + '</sexo>' : '')
       + dir
       + (v.telefono ? '<telefono>' + esc(v.telefono) + '</telefono>' : '')
       + (v.email    ? '<correo>'   + esc(v.email)    + '</correo>'   : '')
@@ -396,9 +404,10 @@ app.post('/api/parte-viajeros', async (req, res) => {
   console.log(`[Checkin] ${data.reserva.referencia} | ${data.viajeros.length} viajero(s)`);
   console.log('[Datos viajero 1]', JSON.stringify(data.viajeros[0]));
 
-  // SES.Hospedajes — envío automático desactivado temporalmente
-  // El XML se adjunta al email para subida manual via Alta masiva en SES.Hospedajes
-  var ses = { ok: false, status: 0, body: 'manual' };
+  // SES.Hospedajes — envío automático
+  var ses = { ok: false, status: 0, body: '' };
+  try { ses = await sendToSES(data); }
+  catch (e) { console.error('[SES error]', e.message); ses.body = e.message; }
 
   // Log de cumplimiento (guarda al menos 3 años según RD 933/2021)
   console.log('[LOG]', JSON.stringify({
