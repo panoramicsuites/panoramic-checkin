@@ -248,16 +248,16 @@ function buildInnerXML(data) {
 
   var personasXML = viajeros.map(function(v) {
     var tipoDoc = DOC_CODES[v.tipo_documento] || 'OTRO';
-    var esNIF   = v.tipo_documento === 'DNI';
-    var esNIE   = v.tipo_documento === 'NIE';
+    var esNIF   = (v.tipo_documento === 'DNI' || v.tipo_documento === 'NIF');
+    var esNIE   = (v.tipo_documento === 'NIE');
     var esNacES = v.nacionalidad_iso === 'ESP' || esNIF;
 
     // apellido2 obligatorio para NIF
     var ap2 = '';
     if (esNIF) {
-      ap2 = '<apellido2>' + esc(v.segundo_apellido || '') + '</apellido2>';
+      ap2 = '<apellido2>' + esc((v.segundo_apellido || '').toUpperCase()) + '</apellido2>';
     } else if (v.segundo_apellido) {
-      ap2 = '<apellido2>' + esc(v.segundo_apellido) + '</apellido2>';
+      ap2 = '<apellido2>' + esc(v.segundo_apellido.toUpperCase()) + '</apellido2>';
     }
 
     // soporteDocumento obligatorio para NIF y NIE
