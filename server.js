@@ -470,6 +470,13 @@ app.get('/test-email', async (_, res) => {
   }
 });
 
+// Mantener Render despierto — ping cada 14 minutos
+setInterval(function() {
+  fetch('https://panoramic-checkin.onrender.com/health')
+    .then(function() { console.log('[KeepAlive] OK'); })
+    .catch(function(e) { console.log('[KeepAlive] Error:', e.message); });
+}, 14 * 60 * 1000);
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Panoramic Suites backend · puerto ${PORT}`);
