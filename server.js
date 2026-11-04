@@ -1,3 +1,4 @@
+
 /**
  * BACKEND — Panoramic Suites
  * Recibe datos del formulario de check-in, los envía a SES.Hospedajes
@@ -429,4 +430,3 @@ app.listen(PORT, () => {
   console.log(`   POST /api/parte-viajeros`);
   console.log(`   Arrendador: ${SES.codigoArrendador} | Establecimiento: ${SES.codigoEstablecimiento}`);
 });
-```
