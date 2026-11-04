@@ -20,21 +20,22 @@ app.use(express.json({ limit: '1mb' }));
 app.use(cors({ origin: ['https://panoramicsuites.com', 'http://localhost:3000'] }));
 
 // ============================================================
-// CREDENCIALES SES.HOSPEDAJES  ⚠️ Cambia la contraseña tras el despliegue
+// CREDENCIALES SES.HOSPEDAJES — todas via variables de entorno en Render
 // ============================================================
 const SES = {
-  usuario:               process.env.SES_USER     || 'B70697537WS',
-  password:              process.env.SES_PASSWORD  || 'lQDkG??3',
-  codigoArrendador:      process.env.SES_ARRENDADOR     || '0000229666',
+  usuario:               process.env.SES_USER,
+  password:              process.env.SES_PASSWORD,
+  codigoArrendador:      process.env.SES_ARRENDADOR      || '0000229666',
   codigoEstablecimiento: process.env.SES_ESTABLECIMIENTO || '0000368319',
   endpoint:             'https://hospedajes.ses.mir.es/hospedajes-web/ws/v1/comunicacion',
 };
+if (!SES.usuario || !SES.password) {
+  console.error('⛔ SES_USER o SES_PASSWORD no definidos. Revisa las variables de entorno en Render.');
+}
 
 // ============================================================
 // CONFIGURACIÓN DE EMAIL
 // ============================================================
-// Opciones para el transporte SMTP. Rellena con los datos de tu
-// servidor de correo o proveedor (ver sección SMTP más abajo).
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const MAIL_FROM = 'Panoramic Suites <info@panoramicsuites.com>';
@@ -44,7 +45,6 @@ const MAIL_TO   = 'info@panoramicsuites.com';
 // BUILDER DEL EMAIL HTML
 // ============================================================
 function fmtDateEs(iso) {
-  // "2025-08-15" → "15/08/2025"
   if (!iso) return '—';
   const [y, m, d] = iso.split('-');
   return `${d}/${m}/${y}`;
@@ -189,7 +189,6 @@ const SEXO_MAP = { M:'HOMBRE', F:'MUJER' };
 
 // ============================================================
 // XML BUILDER — formato oficial SES.Hospedajes v1.2.0
-// Basado en plantilla oficial 1-plantilla.xml
 // ============================================================
 function esc(s) {
   return String(s||'')
@@ -197,7 +196,6 @@ function esc(s) {
     .replace(/"/g,'&quot;').replace(/'/g,'&apos;');
 }
 
-// YYYY-MM-DD -> YYYY-MM-DD+02:00
 function fmtDate(d) {
   if (!d) return '';
   var s = d.replace(/-/g,'');
@@ -205,7 +203,6 @@ function fmtDate(d) {
   return iso+'+02:00';
 }
 
-// YYYY-MM-DD + HHMM -> YYYY-MM-DDTHH:MM:SS+02:00
 function fmtDateTime(d, hhmm) {
   if (!d) return '';
   var s = d.replace(/-/g,'');
@@ -214,19 +211,13 @@ function fmtDateTime(d, hhmm) {
   return iso+'T'+h+'+02:00';
 }
 
-// Tipos de documento oficiales
 var DOC_CODES = {
-  // Nuevo formulario (códigos directos)
   'NIF':'NIF', 'NIE':'NIE', 'PAS':'PAS', 'OTRO':'OTRO',
-  // Formulario anterior
   'DNI':'NIF', 'OTR':'OTRO',
 };
 
-// Tipos de pago oficiales (tabla 8.7)
 var PAGO_CODES = {
-  // Códigos directos (nuevo formulario)
   'TARJT': 'TARJT', 'TRANS': 'TRANS', 'MOVIL': 'MOVIL', 'EFECT': 'EFECT', 'OTRO': 'OTRO',
-  // Labels (compatibilidad formulario anterior)
   'Tarjeta de crédito/débito': 'TARJT',
   'Transferencia bancaria':    'TRANS',
   'Bizum':                     'MOVIL',
@@ -234,7 +225,6 @@ var PAGO_CODES = {
   'Otro':                      'OTRO',
 };
 
-// Parentesco: mapeo del formulario a códigos oficiales (tabla 8.3)
 var PARENTESCO_CODES = {
   'Padre/Madre':    'PM',
   'Tutor/a legal':  'TU',
@@ -252,7 +242,6 @@ function buildInnerXML(data) {
     var esNIE   = (v.tipo_documento === 'NIE');
     var esNacES = v.nacionalidad_iso === 'ESP' || esNIF;
 
-    // apellido2 obligatorio para NIF
     var ap2 = '';
     if (esNIF) {
       ap2 = '<apellido2>' + esc((v.segundo_apellido || '').toUpperCase()) + '</apellido2>';
@@ -260,13 +249,11 @@ function buildInnerXML(data) {
       ap2 = '<apellido2>' + esc(v.segundo_apellido.toUpperCase()) + '</apellido2>';
     }
 
-    // soporteDocumento obligatorio para NIF y NIE
     var soporte = '';
     if ((esNIF || esNIE) && v.num_soporte) {
       soporte = '<soporteDocumento>' + esc(v.num_soporte.toUpperCase()) + '</soporteDocumento>';
     }
 
-    // Bloque documento (solo si tiene documento)
     var docBlock = '';
     if (v.num_documento) {
       docBlock = '<tipoDocumento>' + tipoDoc + '</tipoDocumento>'
@@ -274,18 +261,9 @@ function buildInnerXML(data) {
         + soporte;
     }
 
-    // Bloque dirección
-    // Para España: codigoMunicipio (INE 5 digitos) + codigoPostal + pais
-    // Para extranjeros: nombreMunicipio + codigoPostal + pais
     var dir = '<direccion><direccion>ND</direccion><codigoPostal>00000</codigoPostal><pais>' + (v.nacionalidad_iso || 'ESP') + '</pais></direccion>';
     if (v.direccion) {
       if (esNacES) {
-        // España: necesitamos codigoMunicipio INE - usamos el CP como fallback visible
-        // El codigoMunicipio debe ser el código INE de 5 dígitos
-        // Como no tenemos el INE directamente, usamos el municipio como nombreMunicipio
-        // y dejamos codigoMunicipio vacío para que SES lo rechace con error claro
-        // NOTA: si el cliente es español necesitamos el código INE del municipio
-        // Usamos el codigo postal como aproximacion y municipio en nombreMunicipio
         dir = '<direccion>'
           + '<direccion>' + esc(v.direccion) + '</direccion>'
           + '<codigoMunicipio>' + (v.codigo_ine || '00000') + '</codigoMunicipio>'
@@ -302,7 +280,6 @@ function buildInnerXML(data) {
       }
     }
 
-    // Parentesco
     var parentesco = '';
     if (v.es_menor && v.relacion) {
       var codPar = PARENTESCO_CODES[v.relacion] || 'OT';
@@ -366,17 +343,14 @@ function buildOuterXML(base64Zip) {
 async function sendToSES(data) {
   const token = Buffer.from(`${SES.usuario}:${SES.password}`).toString('base64');
 
-  // Step 1: Build the inner XML with the communication data
   const innerXML = buildInnerXML(data);
   console.log('[Inner XML]\n', innerXML);
 
-  // Step 2: Compress inner XML as ZIP and encode as Base64
   const zip = new AdmZip();
   zip.addFile('comunicacion.xml', Buffer.from(innerXML, 'utf8'));
   const zipBuffer = zip.toBuffer();
   const base64Zip = zipBuffer.toString('base64');
 
-  // Step 3: Build outer XML envelope with cabecera + base64 solicitud
   const outerXML = buildOuterXML(base64Zip);
   console.log('[SES envelope length]', outerXML.length);
 
@@ -402,22 +376,17 @@ app.post('/api/parte-viajeros', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Datos incompletos' });
 
   console.log(`[Checkin] ${data.reserva.referencia} | ${data.viajeros.length} viajero(s)`);
-  console.log('[Datos viajero 1]', JSON.stringify(data.viajeros[0]));
 
-  // SES.Hospedajes — envío automático
   var ses = { ok: false, status: 0, body: '' };
   try { ses = await sendToSES(data); }
   catch (e) { console.error('[SES error]', e.message); ses.body = e.message; }
 
-  // Log de cumplimiento (guarda al menos 3 años según RD 933/2021)
   console.log('[LOG]', JSON.stringify({
     ts: data.timestamp, ref: data.reserva.referencia,
     viajeros: data.viajeros.length, ses_ok: ses.ok, ses_status: ses.status
   }));
 
-  // ── EMAIL DE NOTIFICACIÓN CON XML ADJUNTO ────────────────
   try {
-    // Generate the inner XML for attachment
     var xmlContent = buildInnerXML(data);
     var xmlFilename = data.reserva.referencia + '.xml';
 
@@ -445,30 +414,7 @@ app.post('/api/parte-viajeros', async (req, res) => {
 
 app.get('/health', (_, res) => res.json({ ok: true }));
 
-app.get('/test-email', async (_, res) => {
-  try {
-    console.log('[Test] RESEND_API_KEY present:', !!process.env.RESEND_API_KEY);
-    var r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'Panoramic Suites <info@panoramicsuites.com>',
-        to:   'info@panoramicsuites.com',
-        subject: 'Test conexion Resend',
-        html: '<p>Si recibes esto, el email funciona correctamente.</p>'
-      })
-    });
-    var data = await r.json();
-    console.log('[Test] Resend response:', r.status, JSON.stringify(data));
-    res.json({ status: r.status, data: data });
-  } catch(e) {
-    console.log('[Test] Error:', e.message);
-    res.json({ error: e.message });
-  }
-});
+// Endpoint /test-email eliminado por seguridad
 
 // Mantener Render despierto — ping cada 14 minutos
 setInterval(function() {
@@ -483,3 +429,4 @@ app.listen(PORT, () => {
   console.log(`   POST /api/parte-viajeros`);
   console.log(`   Arrendador: ${SES.codigoArrendador} | Establecimiento: ${SES.codigoEstablecimiento}`);
 });
+```
